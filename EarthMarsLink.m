@@ -41,6 +41,30 @@ for j = 1:NUM
     direct = distTable(source,target);
     directRb(:,j) = linkBudget(direct);
     
+    %Find the best route with 1 hop and only Earth L4
+    for i = 1:3
+        %Find all the first hops from the source
+        earthL4Hop(1,i) = distTable(source,i); 
+        %Find all the distances from the first hop to the target
+        earthL4Hop(2,i) = distTable(i, target);
+    end
+    earthL4HopMin = min(max(earthL4Hop));
+    earthL4HopRb(:,j) = linkBudget(earthL4HopMin);
+    
+    %Find the best route with 1 hop and only Earth L4
+    for i = 1:3
+        %Introduce a secondary variable so the loop can pick L5, not L4
+        %1 = Earth, 2 = Mars, 4 = L5
+        z = [1,2,4];
+        %Find all the first hops from the source
+        earthL5Hop(1,i) = distTable(source,z(i)); 
+        %Find all the distances from the first hop to the target
+        earthL5Hop(2,i) = distTable(z(i), target);
+    end
+    earthL5HopMin = min(max(earthL5Hop));
+    earthL5HopRb(:,j) = linkBudget(earthL5HopMin);
+    
+      
     %Find the best route with 1 hop and only Earth Lagranges
     for i = 1:4
         %Find all the first hops from the source
@@ -93,8 +117,11 @@ avgRb(3) = sum(oneHopRb(4,:))/NUM;
 minRb(3) = min(oneHopRb(4,:));
 avgRb(4) = sum(twoHopRb(4,:))/NUM;
 minRb(4) = min(twoHopRb(4,:));
+avgRb(5) = sum(earthL5HopRb(4,:))/NUM;
+minRb(5) = min(earthL5HopRb(4,:));
 
-for i = 1:3
+%Calculate the increase to average and minimum bandwidth, in percentage.
+for i = 1:4
     incAvg(i) = ((avgRb(1+i)/avgRb(1))*100)-100;
     incMin(i) = ((minRb(1+i)/minRb(1))*100)-100;
 end
@@ -109,12 +136,20 @@ title('Direct Link to Earth (In Mbps)');
 subplot(5,1,3)
 plot(t,earthHopRb(4,:),'m');
 title('One Hop with Earth L4 and L5 Satellites (In Mbps)');
+
 subplot(5,1,4)
-plot(t,oneHopRb(4,:),'g');
-title('One Hop with Earth and Mars L4 and L5 Satellites (In Mbps)');
+plot(t,earthL4HopRb(4,:),'g');
+title('One Hop with just Earth L4 available (In Mbps)');
 subplot(5,1,5)
-plot(t,twoHopRb(4,:),'b');
-title('Two Hops with Earth and Mars L4 and L5 Satellites (In Mbps)');
+plot(t,earthL5HopRb(4,:),'b');
+title('One Hop with just Earth L5 available  (In Mbps)');
+
+% subplot(5,1,4)
+% plot(t,oneHopRb(4,:),'g');
+% title('One Hop with Earth and Mars L4 and L5 Satellites (In Mbps)');
+% subplot(5,1,5)
+% plot(t,twoHopRb(4,:),'b');
+% title('Two Hops with Earth and Mars L4 and L5 Satellites (In Mbps)');
 
 function [x,y, t] = posnCalc()
 
