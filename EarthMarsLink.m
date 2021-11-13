@@ -3,9 +3,17 @@ clear all
 format long
 
 %Global Variables%
+%starting and ending years (compared to Jan, 2007)
+%first year is the real year, subtract 2007 for the math to work
+global STARTYEAR
+global ENDYEAR
+STARTYEAR = 2030-2007;
+ENDYEAR = 2040-2007;
+
+%Loop counters, calculated so that each time slice is 1/2 of an Earth Day
 global NUM
 global BANDS
-NUM = 10000;
+NUM = (ENDYEAR-STARTYEAR)*365*2;
 BANDS = 4;
 
 %CONSTANTS
@@ -20,10 +28,17 @@ HOPS = 2;
 source = 1;
 target = 2;
 
-%Calculate the distance as a comparison
+%Calculate the distance in m as a comparison
+%Calculate the angles as a comparison
 for i = 1:NUM
     dist(i) = sqrt((x(1,i)-x(2,i)).^2 + (y(1,i)-y(2,i)).^2);
+    thetaEM(:,i) = anglesCalc([x(1,i),y(1,i)],[x(2,i),y(2,i)]);
+    thetaL4M(:,i) = anglesCalc([x(3,i),y(3,i)],[x(2,i),y(2,i)]);
+    thetaL5M(:,i) = anglesCalc([x(4,i),y(4,i)],[x(2,i),y(2,i)]);
 end
+
+%Use this variable to calculate the nubmer of days on Mars with 0 service.
+zeroDays = 0;
 
 distTable = zeros(NODES);
 jumps = zeros(3,NODES^HOPS);
@@ -35,11 +50,19 @@ for j = 1:NUM
     for i = 1:NODES
         for k = 1:NODES
             distTable(i,k) = sqrt((x(i,j)-x(k,j)).^2 + (y(i,j)-y(k,j)).^2);
+            %Add the effects of the Sn on the direct route
+            sunTheta = anglesCalc([x(i,j),y(i,j)],[x(k,j),y(k,j)]);
+            sunMult = max(sunEffect(sunTheta(1)),sunEffect(sunTheta(2)));
+            distTable(i,k) = distTable(i,k)*sunMult;
         end
     end
     %Find the direct route
     direct = distTable(source,target);
-    directRb(:,j) = linkBudget(direct);
+    Rb(1,j) = linkBudget(direct);
+    if(Rb(1,j)<=1)
+        zeroDays = zeroDays + 1;
+    end
+    
     
     %Find the best route with 1 hop and only Earth L4
     for i = 1:3
@@ -49,9 +72,9 @@ for j = 1:NUM
         earthL4Hop(2,i) = distTable(i, target);
     end
     earthL4HopMin = min(max(earthL4Hop));
-    earthL4HopRb(:,j) = linkBudget(earthL4HopMin);
+    Rb(2,j) = linkBudget(earthL4HopMin);
     
-    %Find the best route with 1 hop and only Earth L4
+    %Find the best route with 1 hop and only Earth L5
     for i = 1:3
         %Introduce a secondary variable so the loop can pick L5, not L4
         %1 = Earth, 2 = Mars, 4 = L5
@@ -62,7 +85,7 @@ for j = 1:NUM
         earthL5Hop(2,i) = distTable(z(i), target);
     end
     earthL5HopMin = min(max(earthL5Hop));
-    earthL5HopRb(:,j) = linkBudget(earthL5HopMin);
+    Rb(3,j) = linkBudget(earthL5HopMin);
     
       
     %Find the best route with 1 hop and only Earth Lagranges
@@ -73,7 +96,7 @@ for j = 1:NUM
         earthHop(2,i) = distTable(i, target);
     end
     earthHopMin = min(max(earthHop));
-    earthHopRb(:,j) = linkBudget(earthHopMin);
+    Rb(4,j) = linkBudget(earthHopMin);
     
     %Find the best route with 1 hop
     for i = 1:NODES
@@ -83,7 +106,7 @@ for j = 1:NUM
         oneHop(2,i) = distTable(i, target);
     end
     oneHopMin = min(max(oneHop));
-    oneHopRb(:,j) = linkBudget(oneHopMin);
+    Rb(5,j) = linkBudget(oneHopMin);
     
     %Find the best path with 2 hops
     for i = 1:NODES
@@ -101,24 +124,18 @@ for j = 1:NUM
     %Find the path with the shortest maximum leg distance
     [jumpMin, index(j)] = min(jumpMax);
     %Find the max bandwidth of that path
-    twoHopRb(:,j) = linkBudget(jumpMin);
+    Rb(6,j) = linkBudget(jumpMin);
 end
 %Plug it into Link budget to find bandwidth.
 %Rb = linkBudget(dist);
 %Plot Things
 %Convert time from seconds to Earth Years%
-t = t./(365*24*3600);
+t = t./(365*24*3600)+2007;
 %Average Data Rate (Mbps)
-avgRb(1) = sum(directRb(4,:))/NUM;
-minRb(1) = min(directRb(4,:));
-avgRb(2) = sum(earthHopRb(4,:))/NUM;
-minRb(2) = min(earthHopRb(4,:));
-avgRb(3) = sum(oneHopRb(4,:))/NUM;
-minRb(3) = min(oneHopRb(4,:));
-avgRb(4) = sum(twoHopRb(4,:))/NUM;
-minRb(4) = min(twoHopRb(4,:));
-avgRb(5) = sum(earthL5HopRb(4,:))/NUM;
-minRb(5) = min(earthL5HopRb(4,:));
+for i = 1:5
+    avgRb(i) = sum(Rb(i,:))/NUM;
+    minRb(i) = min(Rb(i,:));
+end
 
 %Calculate the increase to average and minimum bandwidth, in percentage.
 for i = 1:4
@@ -126,23 +143,23 @@ for i = 1:4
     incMin(i) = ((minRb(1+i)/minRb(1))*100)-100;
 end
 
-figure;
+figure('Name','Data Link Rates');
 subplot(5,1,1)
 plot(t,dist/10^3,'r');
 title('Earth-Mars Distance (In Km)');
 subplot(5,1,2)
-plot(t,directRb(4,:),'c');
-title('Direct Link to Earth (In Mbps)');
+plot(t,Rb(1,:),'c');
 subplot(5,1,3)
-plot(t,earthHopRb(4,:),'m');
-title('One Hop with Earth L4 and L5 Satellites (In Mbps)');
-
-subplot(5,1,4)
-plot(t,earthL4HopRb(4,:),'g');
+plot(t,Rb(2,:),'g');
 title('One Hop with just Earth L4 available (In Mbps)');
-subplot(5,1,5)
-plot(t,earthL5HopRb(4,:),'b');
+subplot(5,1,4)
+plot(t,Rb(4,:),'b');
 title('One Hop with just Earth L5 available  (In Mbps)');
+
+title('Direct Link to Earth (In Mbps)');
+subplot(5,1,5)
+plot(t,Rb(4,:),'m');
+title('One Hop with Earth L4 and L5 Satellites (In Mbps)');
 
 % subplot(5,1,4)
 % plot(t,oneHopRb(4,:),'g');
@@ -151,12 +168,30 @@ title('One Hop with just Earth L5 available  (In Mbps)');
 % plot(t,twoHopRb(4,:),'b');
 % title('Two Hops with Earth and Mars L4 and L5 Satellites (In Mbps)');
 
-function [x,y, t] = posnCalc()
+figure('Name','Sun Effects');
+subplot(4,1,1)
+plot(t,thetaEM(1,:),'b');
+title('Look Angle between the Sun and Mars from Earth (deg)');
+subplot(4,1,2)
+plot(t,thetaEM(2,:),'r');
+title('Look Angle between the Sun and Earth from Mars (deg)');
+subplot(4,1,3)
+plot(t,thetaL4M(1,:),'g');
+title('Look Angle between the Sun and Mars from Earth L4 (deg)');
+subplot(4,1,4)
+plot(t,thetaL5M(1,:),'r');
+title('Look Angle between the Sun and Mars from Earth L5 (deg)');
+
+
+
+function [x,y,t] = posnCalc()
 
 %CONSTANTS%
 %number of iterations (unitless)
 global NUM
-
+%time range
+global STARTYEAR
+global ENDYEAR
 %GIVENS%
 %Data from: https://www.princeton.edu/~willman/planetary_systems/Sol/%
 %Start time is 2007 Jan 15, 0030 UT, Earth Time of Periapsis
@@ -169,7 +204,7 @@ r_a = [152.10*10^9, 249.23*10^9];
 mu = 1.327124400*10^20;
 %Time Range (seconds)
 %Counting up from 2007 Jan 15 at 0030 UT.
-t = linspace(13*365*24*3600,18*365*24*3600,NUM);
+t = linspace(STARTYEAR*365*24*3600,ENDYEAR*365*24*3600,NUM);
 
 %ORBIT CHARACTERISTICS - from Curtis, Table 3.1%
 %Eccentricity (unitless)
@@ -262,11 +297,6 @@ y(5,:) = a(2)*sin(alpha(2))*cos(theta(2)+L4)+b(2)*cos(alpha(2))*sin(theta(2)+L4)
 %TRUE ANOMALY OFFSET INSTEAD OF MEAN - ERROR INTRODUCED%
 x(6,:) = a(2)*cos(alpha(2))*cos(theta(2)-L5)-b(2)*sin(alpha(2))*sin(theta(2)-L5)+C_x(2);
 y(6,:) = a(2)*sin(alpha(2))*cos(theta(2)-L5)+b(2)*cos(alpha(2))*sin(theta(2)-L5)+C_y(2);
-
-%Plot Results
-%f = figure;
-%plot(t,dist,'b');
-
 end
 
 function Rb = linkBudget(dist)
@@ -282,7 +312,7 @@ global BANDS
 global NUM
 %Speed of Light (m/s)
 c = 3*10^8;
-%Boltsmann's constant (dB(W/k/Hz)
+%Boltsmann's constant (dB(W/k/Hz))
 k = -228.5991672;
 
 %GIVENS%
@@ -325,17 +355,75 @@ EbN0_req = 1;
 EbN0_margin = 3;
 
 %Calculate Data Rate
-Rb = zeros(1,BANDS);
 PtN0 = zeros(1,BANDS);
 EbN0 = zeros(1,BANDS);
-for j = 1:BANDS
+
+%Update this to just consider Ka
+%for j = 1:BANDS
+j = 4;
     %Recieved Pt/N0 (dB-Hz)
     PtN0(j) = P_dB(j) - LL + Gt(j) - PL - FSL(j) + Gr(j) - T_dB(j);
     %Available Eb/N0 (dB)
     EbN0(j) = PtN0(j) - EbN0_req - EbN0_margin;
     %Maximum Theoretical Data Rate (Mb/s)
-    Rb(j) = (10^(EbN0(j)/10))/10^6;
-end
+    Rb = (10^(EbN0(j)/10))/10^6;
+
 
 end
+
+%This function calculates the three internal angles in a triangle made by:
+%The Sun at [0,0], Celestial Body 1 at p1, and Celestial Body 2 at p2
+%This is used to determine the nous caused by the Sun
+function [theta] = anglesCalc(p1,p2)
+    %First calculate the angle between p1 and p2 as seen from the Sun
+    theta(3) = acos((dot(p1,p2))/(sqrt(p1(1)^2+p1(2)^2)*sqrt(p2(1)^2+p2(2)^2)))*180/pi;
+
+    %Second calculate the angle between p2 and the Sun, as seen from p1
+    % First, center the vector from p1 to p2 on zero
+    p1p2 = p2-p1;
+    % Second, center the vector from p1 to the Sun on zero
+    p1Sun = [0,0]-p1;
+    % Then calculate the angle between p1Sun and p1p2
+    theta(1) = acos((dot(p1p2,p1Sun))/(sqrt(p1p2(1)^2+p1p2(2)^2)*sqrt(p1Sun(1)^2+p1Sun(2)^2)))*180/pi;
+    
+    %Finally calculate the angle between p1 and the Sun, as seen from p2
+    % First, center the vector from p2 to p1 on zero
+    p2p1 = p1-p2;
+    % Second, center the vector from p2 to the Sun on zero
+    p2Sun = [0,0]-p2;
+    % Then calculate the angle between p1Sun and p1p2
+    theta(2) = acos((dot(p2p1,p2Sun))/(sqrt(p2p1(1)^2+p2p1(2)^2)*sqrt(p2Sun(1)^2+p2Sun(2)^2)))*180/pi;
+    
+    %Check to see if all three angles add up to 180
+    sum(theta);
+
+end
+
+%This function calculates the additional System Noise Temp (in K) from the Sun
+%at any given angle, in degrees. From Eq 8.2 in the DSN
+%Telecommunications Link Design Handbook (Slobin, 2015)
+%Note that only Ka band is being considered
+function [sunMult] = sunEffect(theta)
+    % System Noise Temperature (K)
+    if (theta <= 0.35)
+        T = 10^15;
+    elseif (theta <= 0.75)
+        T = 1400*exp(-5.1*theta);
+    elseif(theta <= 4)
+        T = 86*exp(-1.4*theta);
+    else
+        T = 0;
+    end 
+    
+    %Default System Noise Temp in Ka Band (K)
+    T0 = 120;
+    %Determine the effect of the Sun's addition to the temp in DB
+    sun_dB = 10*log10((T+T0)/T0);
+    %Determine the miltiplier for Distance to account for the Sun
+    sunMult = 10^(sun_dB/10);
+    %Note, going through dB's is uneccessary
+    %sunMult = (T+T0)/T0
+end
+
+
 
